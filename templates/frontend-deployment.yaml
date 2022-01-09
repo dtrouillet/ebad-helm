@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.frontend.name }}-frontend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: "{{ .Values.frontend.name }}"
+    namespace: "{{ .Release.Namespace }}"
+    revision: "{{ .Release.Revision }}"
+    time: "{{ now | unixEpoch }}"
+spec:
+  replicas: {{ .Values.frontend.replicas }}
+  selector:
+    matchLabels:
+      app: "{{ .Values.frontend.name }}"
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 1
+  minReadySeconds: 3
+  # 1 because revision are handled by Helm so we will not use directly Kubernetes to rollback
+  # we could have set this field to 0 but at least we have another way to rollback if needed
+  revisionHistoryLimit: 1
+  template:
+    metadata:
+      labels:
+        app: "{{ .Values.frontend.name }}"
+        namespace: "{{ .Release.Namespace }}"
+      annotations:
+        # This is done to force pod creation after each helm upgrade command. As this value will change, 
+        # we will then force the re deploy to happen, even if the docker image hasn't change. The use case
+        # here is when you deploy and only change a ConfigMap, it will force to re deploy each ms w/o changing its docker image
+        checksum/config: {{ include (print $.Template.BasePath "/frontend-configmap.yaml") . | sha256sum }}
+    spec:
+      affinity:
+        podAntiAffinity:
+          # Preferred is better than required: if the orchestrator want to autoscale more pods than
+          # the number of nodes, you will be locked if you are using 'required' field on scheduling
+          # This configuration is here to try to schedulude one pod / host
+          # TODO: improve this part to deploy according to datacenters needs (try to split between Serris & Arceuil)
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - {{ .Values.frontend.name }}
+                topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        fsGroup: {{ .Values.frontend.security.fsGroup }}
+      containers:
+        - name: "container-{{ .Values.frontend.name }}"
+          image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+          resources:
+            requests:
+              memory: "{{ .Values.frontend.ressources.requests.memory }}"
+              cpu: "{{ .Values.frontend.ressources.requests.cpu }}"
+            limits:
+              memory: "{{ .Values.frontend.ressources.limits.memory }}"
+              cpu: "{{ .Values.frontend.ressources.limits.cpu }}"
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 1
+            httpGet:
+              path: "{{ .Values.frontend.livenessProbePath }}"
+              port: {{ .Values.frontend.livenessProbePort }}
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: "{{ .Values.frontend.readinessProbePath }}"
+              port: {{ .Values.frontend.readinessProbePort }}
+            failureThreshold: 1
+            initialDelaySeconds: 20
+            periodSeconds: 3
+          securityContext:
+            runAsUser: {{ .Values.frontend.security.runAsUser }}
+            runAsGroup: {{ .Values.frontend.security.runAsGroup }}
+            readOnlyRootFilesystem: false
+            capabilities:
+              add: {{ .Values.frontend.security.capabilities }}
+          ports:
+            - containerPort: {{ .Values.frontend.containerPort }}
+        {{- if gt (len .Values.frontend.config.extraEnv) 0 }}
+          env:
+          {{- range $key, $value := .Values.frontend.config.extraEnv }}
+            - name: {{ $value.key }}
+              valueFrom:
+                configMapKeyRef:
+                  key: {{ $value.key }}
+                  name: {{ .Values.frontend.name }}
+          {{- end }}
+        {{end}}
+          volumeMounts:
+        {{- if gt (len .Values.frontend.config.extraEnvVolume) 0}}
+          {{- range $key, $value := .Values.frontend.config.extraEnvVolume }}
+            - mountPath: {{ $value.mountpath }}
+              name: config
+              subPath: {{ $value.subpath }}
+          {{- end}}
+            - mountPath: /opt/bitnami/nginx/tmp/
+              name: tmp
+        {{end}}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Values.frontend.name }}
+        - name: tmp
+          emptyDir: { }

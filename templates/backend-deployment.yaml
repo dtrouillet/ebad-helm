@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.backend.name }}-backend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: "{{ .Values.backend.name }}"
+    namespace: "{{ .Release.Namespace }}"
+    revision: "{{ .Release.Revision }}"
+    time: "{{ now | unixEpoch }}"
+spec:
+  replicas: {{ .Values.backend.replicas }}
+  selector:
+    matchLabels:
+      app: "{{ .Values.backend.name }}"
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 1
+  minReadySeconds: 3
+  # 1 because revision are handled by Helm so we will not use directly Kubernetes to rollback
+  # we could have set this field to 0 but at least we have another way to rollback if needed
+  revisionHistoryLimit: 1
+  template:
+    metadata:
+      labels:
+        app: "{{ .Values.backend.name }}"
+        namespace: "{{ .Release.Namespace }}"
+      annotations:
+        # This is done to force pod creation after each helm upgrade command. As this value will change, 
+        # we will then force the re deploy to happen, even if the docker image hasn't change. The use case
+        # here is when you deploy and only change a ConfigMap, it will force to re deploy each ms w/o changing its docker image
+        checksum/config: {{ include (print $.Template.BasePath "/backend-configmap.yaml") . | sha256sum }}
+    spec:
+      affinity:
+        podAntiAffinity:
+          # Preferred is better than required: if the orchestrator want to autoscale more pods than
+          # the number of nodes, you will be locked if you are using 'required' field on scheduling
+          # This configuration is here to try to schedulude one pod / host
+          # TODO: improve this part to deploy according to datacenters needs (try to split between Serris & Arceuil)
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - {{ .Values.backend.name }}
+                topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        fsGroup: {{ .Values.backend.security.fsGroup }}
+      containers:
+        - name: "container-{{ .Values.backend.name }}"
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          resources:
+            requests:
+              memory: "{{ .Values.backend.ressources.requests.memory }}"
+              cpu: "{{ .Values.backend.ressources.requests.cpu }}"
+            limits:
+              memory: "{{ .Values.backend.ressources.limits.memory }}"
+              cpu: "{{ .Values.backend.ressources.limits.cpu }}"
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 1
+            httpGet:
+              path: "{{ .Values.backend.livenessProbePath }}"
+              port: {{ .Values.backend.livenessProbePort }}
+              scheme: HTTP
+            initialDelaySeconds: 120
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: "{{ .Values.backend.readinessProbePath }}"
+              port: {{ .Values.backend.readinessProbePort }}
+            failureThreshold: 1
+            initialDelaySeconds: 60
+            periodSeconds: 3
+          securityContext:
+            runAsUser: {{ .Values.backend.security.runAsUser }}
+            runAsGroup: {{ .Values.backend.security.runAsGroup }}
+            readOnlyRootFilesystem: false
+            capabilities:
+              add: {{ .Values.backend.security.capabilities }}
+          ports:
+            - containerPort: {{ .Values.backend.containerPort }}
+            - containerPort: {{ .Values.backend.containerPortAdmin }}
+          env:
+        {{- $appName := .Values.backend.name -}}
+        {{- range $key, $value := .Values.backend.config.extraEnv }}
+            - name: {{ $value.key }}
+              valueFrom:
+                configMapKeyRef:
+                  key: {{ $value.key }}
+                  name: {{ $appName }}
+        {{- end }}
+            # If your application needs some secrets, please contact the team =)
+            - name: spring_datasource_password
+              valueFrom:
+                secretKeyRef:
+                  key: spring_datasource_password
+                  name: {{ .Values.backend.name }}
+        {{- if gt (len .Values.backend.config.extraEnvVolume) 0 -}}
+          volumeMounts:
+          {{- range $key, $value := .Values.backend.backend.extraEnvVolume }}
+            - mountPath: {{ $value.mountpath }}
+              name: config
+              subPath: {{ $value.subpath }}
+          {{- end }}
+        {{end}}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Values.backend.name }}
+

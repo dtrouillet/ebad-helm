@@ -1,0 +1,18 @@
+/!\ The new {{ .Values.frontend.name }} release is now deployed /!\
+/!\ The new {{ .Values.backend.name }} release is now deployed /!\
+
+Image repository of the frontend is: {{.Values.frontend.image.repository}}.
+Image tag of the frontend is: {{.Values.frontend.image.tag}}.
+
+{{ printf "\n" }}
+{{- if .Values.frontend.ingress.enabled -}}
+It should be available shortly available here: https://{{.Values.frontend.ingress.host}}.
+{{end}}
+
+Image repository of the backend is: {{.Values.backend.image.repository}}.
+Image tag of the backend is: {{.Values.backend.image.tag}}.
+
+{{ printf "\n" }}
+{{- if .Values.frontend.ingress.enabled -}}
+It should be available shortly available here: https://{{.Values.backend.ingress.host}}.
+{{end}}

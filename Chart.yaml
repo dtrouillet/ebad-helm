@@ -1,0 +1,11 @@
+apiVersion: v1
+name: EBAD
+description: Execution des batch à distance
+version: 1.0.0
+keywords:
+  - EBAD
+home: https://github.com/informatique-cdc/ebad
+maintainers:
+  - name: Damien Trouillet
+    email: damien.trouillet@caissedesdepots.fr
+appVersion: 1.0.0

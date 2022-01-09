@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "{{ .Values.frontend.name }}"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: "{{ .Values.frontend.name }}"
+    namespace: "{{ .Release.Namespace }}"
+    revision: "{{ .Release.Revision }}"
+    time: "{{ now | unixEpoch }}"
+data:
+    {{- range $key, $value := .Values.frontend.config.extraEnv }}
+    {{ $value.key }}: "{{ $value.value }}"
+    {{- end }}
+    {{- range $key, $value := .Values.frontend.config.extraEnvVolume }}
+    {{ $value.subpath }}: |-
+      {{ $value.value }}
+    {{- end }}

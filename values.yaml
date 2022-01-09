@@ -1,0 +1,84 @@
+backend:
+  name: ebad-back
+  replicas: 2
+  containerPort: 11006
+  containerPortAdmin: 8000
+  livenessProbePath: /ebad/actuator/health/liveness
+  livenessProbePort: 11006
+  readinessProbePath: /ebad/actuator/health/readiness
+  readinessProbePort: 11006
+  servicePort: 80
+  servicePortAdmin: 90
+  image:
+    repository: ghcr.io/informatique-cdc/ebad/ebad
+    tag: 2.9.0
+  ressources:
+    requests:
+      memory: 512Mi
+      cpu: 200m
+    limits:
+      memory: 2048Mi
+      cpu: 500m
+  ingress:
+    enabled: true
+    host: ebad.example.com
+    path: "/ebad"
+  ingressAdmin:
+    enabled: true
+    host: ""
+    path: "/"
+  config:
+    extraEnv:
+      - key: spring_profiles_active
+        value: "jwt,prod"
+      - key: spring_datasource_url
+        value: "jdbc:postgresql://bdd.external.example.com:5432/ebad?currentSchema=public"
+      - key: spring_datasource_username
+        value: "amazinguser"
+    extraEnvVolume: []
+  security:
+    runAsUser: 1001
+    runAsGroup: 1001
+    fsGroup: 1001
+    capabilities: []
+
+frontend:
+  name: ebad-front
+  replicas: 2
+  containerPort: 8080
+  livenessProbePath: /
+  livenessProbePort: 8080
+  readinessProbePath: /
+  readinessProbePort: 8080
+  servicePort: 80
+  image:
+    repository: ghcr.io/informatique-cdc/ebad-front/ebad-front
+    tag: 2.9.0
+  ressources:
+    requests:
+      memory: 512Mi
+      cpu: 200m
+    limits:
+      memory: 2048Mi
+      cpu: 500m
+  ingress:
+    enabled: true
+    host: ebad.example.com
+    path: "/"
+  config:
+    extraEnv: []
+    extraEnvVolume:
+      - subpath: local-config.json
+        mountpath: /app/assets/local-config.json
+        value: "
+              {
+                \"apiUrl\": \"/ebad\",
+                \"jwt\": true,
+                \"production\": true,
+                \"wsUrl\": \"ws://ebad.example.com/ebad/ws\"
+              }"
+  security:
+    runAsUser: 1001
+    runAsGroup: 1001
+    fsGroup: 1001
+    capabilities: []
